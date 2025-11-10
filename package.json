@@ -1,0 +1,31 @@
+{
+  "name": "simple-medical-mcp-server",
+  "version": "1.0.0",
+  "description": "Simple Medical MCP Server - Embed medical documents and search with GPT",
+  "main": "simple_mcp_server.py",
+  "scripts": {
+    "embed": "python simple_embedder.py",
+    "start": "python simple_mcp_server.py",
+    "test": "python test_system.py",
+    "install": "python -m pip install -r requirements.txt"
+  },
+  "keywords": [
+    "medical",
+    "mcp",
+    "ai",
+    "openai",
+    "embeddings"
+  ],
+  "author": "Simple Medical MCP Team",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.18.2",
+    "dotenv": "^17.2.2",
+    "openai": "^5.23.0"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "python": ">=3.8.0"
+  }
+}

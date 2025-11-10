@@ -1,0 +1,31 @@
+# Medical Knowledge MCP Server Requirements
+
+# Core MCP and Environment
+mcp>=1.0.0
+python-dotenv>=1.0.0
+
+# Vector Database and Embeddings
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+numpy>=1.24.0
+
+# Testing and Validation
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+jsonschema>=4.17.0
+unittest-mock>=1.0.0
+
+# Optional: Legacy Flask API (if using Langapproach.py)
+flask>=2.3.0
+requests>=2.31.0
+
+# Optional: LangChain (if using Langapproach.py)
+langchain>=0.1.0
+langchain-openai>=0.0.5
+langchain-community>=0.0.10
+
+# Optional: Haystack (if using Langapproach.py)
+haystack>=2.0.0
+chroma-haystack>=0.1.0
+faiss-cpu>=1.7.4
+tqdm>=4.65.0

@@ -1,0 +1,35 @@
+{
+  "user_id": "USER_DEF_9Q3403",
+  "timestamp": "2025-10-22T16:37:31.489661",
+  "llm_diagnosis": "1. Suspected R knee medial meniscus tear? (85%)\n2. Suspected R knee cartilage irritation? (70%)\n3. Suspected L knee PFPS? (60%)\n4. Suspected bilateral patellofemoral dysfunction? (45%)\n5. Suspected IT band syndrome bilateral? (30%)",
+  "diagnoses_with_probability": [
+    {
+      "diagnosis": "1. Suspected R knee medial meniscus tear?",
+      "probability": 85
+    },
+    {
+      "diagnosis": "2. Suspected R knee cartilage irritation?",
+      "probability": 70
+    },
+    {
+      "diagnosis": "3. Suspected L knee PFPS?",
+      "probability": 60
+    },
+    {
+      "diagnosis": "4. Suspected bilateral patellofemoral dysfunction?",
+      "probability": 45
+    },
+    {
+      "diagnosis": "5. Suspected IT band syndrome bilateral?",
+      "probability": 30
+    }
+  ],
+  "required_fields": "- records.clinicalDetails.chiefComplaints\n- records.clinicalDetails.clientHistory\n- records.objectiveAssessment.tests[].testName (Clark's Test, Thessaly's Test - positive findings)\n- records.subjectiveAssessment.assessment",
+  "original_diagnosis": "SUSPCETED MILD R KNEE CARTILAGE IRRITATION? L KNEE MEDIAL MENISCAL IRRIATIONS?",
+  "success": true,
+  "processing_time": "12.28s",
+  "full_response": "1. Suspected R knee medial meniscus tear? (85%)\n2. Suspected R knee cartilage irritation? (70%)\n3. Suspected L knee PFPS? (60%)\n4. Suspected bilateral patellofemoral dysfunction? (45%)\n5. Suspected IT band syndrome bilateral? (30%)\n\nREQUIRED FIELDS FOR DIAGNOSIS:\n- records.clinicalDetails.chiefComplaints\n- records.clinicalDetails.clientHistory\n- records.objectiveAssessment.tests[].testName (Clark's Test, Thessaly's Test - positive findings)\n- records.subjectiveAssessment.assessment",
+  "approach": "MCP-Integrated LangChain Agent (NO MEMORY)",
+  "query_file": "USER_DEF_9Q3403_query.txt"
+}
+
