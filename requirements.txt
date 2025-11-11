@@ -12,17 +12,18 @@ openai>=1.30.0
 requests>=2.31.0
 
 # LangChain - Use specific compatible versions
-langchain==0.2.16
-langchain-openai==0.1.25
-langchain-community==0.2.16
-langchain-core==0.2.38
-langchain-text-splitters==0.2.4
+langchain-classic>=0.3.0
+langchain-openai>=0.1.25
+langchain-core>=0.2.38
 
 # Token counting
 tiktoken>=0.5.0
 
 # Pydantic (compatible version)
 pydantic==2.9.2
+
+# MongoDB (for BSON ObjectId in combined_processing.py)
+pymongo>=4.0.0
 
 # Note: ChromaDB is accessed via the MCP server (mcp_medical_server.py)
 # so it doesn't need to be installed in this client environment
