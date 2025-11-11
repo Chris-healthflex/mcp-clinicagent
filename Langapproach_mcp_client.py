@@ -2,6 +2,7 @@
 """
 HIGH-PERFORMANCE LangChain Medical API Server with MCP Client
 Connects to mcp_medical_server.py instead of duplicating database logic.
+FIXED IMPORTS for LangChain 0.2+
 """
 
 import os
@@ -16,22 +17,26 @@ from flask import Flask, request, jsonify
 import dotenv
 from typing import List, Dict, Any
 from openai import OpenAI
+import random
 
-# MCP imports - removed unused ones
-
-# LangChain imports
+# LangChain imports - FIXED for version 0.2+
 from langchain_openai import ChatOpenAI
-from langchain.prompts import PromptTemplate
-from langchain.schema import Document
-from langchain.chains import RetrievalQA
-from langchain.schema.retriever import BaseRetriever
-from langchain.callbacks.manager import CallbackManagerForRetrieverRun
-from langchain.tools import Tool
-from langchain.agents import AgentType, initialize_agent
-from langchain.memory import ConversationBufferMemory
+from langchain_core.prompts import PromptTemplate  # FIXED: moved to langchain_core
+from langchain_core.documents import Document  # FIXED: moved to langchain_core
+from langchain_classic.chains import RetrievalQA
+from langchain_core.retrievers import BaseRetriever  # FIXED: moved to langchain_core
+from langchain_core.callbacks import CallbackManagerForRetrieverRun  # FIXED: moved to langchain_core
+from langchain_core.tools import Tool
+from langchain_classic.agents import AgentType, initialize_agent
+from langchain_classic.memory import ConversationBufferMemory
 
-# Load environment variables
+
+import os, dotenv
 dotenv.load_dotenv()
+print("🔍 Checking environment variable:")
+print("OPENAI_API_KEY present?", 'OPENAI_API_KEY' in os.environ)
+print("OPENAI_API_KEY starts with:", os.getenv('OPENAI_API_KEY')[:10] if os.getenv('OPENAI_API_KEY') else 'None')
+
 
 # Setup verbose logging
 logging.basicConfig(
@@ -408,8 +413,8 @@ class MCPMedicalSystem:
             temperature=0.7,
             max_tokens=3000,
             api_key=os.environ.get("OPENAI_API_KEY"),
-            request_timeout=20,
-            max_retries=2
+            request_timeout=40,
+            max_retries=6
         )
     
     def _setup_mcp_tools(self):
@@ -606,6 +611,30 @@ logger.info("🚀 Initializing MCP-based medical system...")
 medical_system = MCPMedicalSystem()
 
 # ---- API ENDPOINTS ----
+
+@app.route('/diagnose_assessment', methods=['POST'])
+def diagnose_assessment():
+    """Simple diagnosis endpoint."""
+    data = request.get_json() or {}
+    assessment_json = data.get("assessment_json")
+    if not isinstance(assessment_json, dict):
+        return jsonify({"error": "assessment_json required"}), 400
+    
+    start_time = time.time()
+    try:
+        medical_system.clear_memory()
+        prompt = f"Analyze this assessment and provide 5 differential diagnoses with probabilities:\n\n{json.dumps(assessment_json, indent=2)}"
+        result = medical_system.agent.invoke({"input": prompt})
+        
+        return jsonify({
+            "user_id": data.get("user_id", ""),
+            "timestamp": datetime.now().isoformat(),
+            "answer": result.get("output", ""),
+            "success": True,
+            "processing_time": f"{(time.time() - start_time):.2f}s"
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/fast_ask', methods=['POST'])
 def fast_ask():
@@ -854,7 +883,10 @@ def index():
         "endpoints": {
             "POST /fast_ask": "Fast MCP server search with web search fallback",
             "POST /agent_ask": "LangChain agent with MCP tools and web search (physiotherapy-focused)",
-            "POST /retrieval_ask": "RetrievalQA with MCP retriever"
+            "POST /retrieval_ask": "RetrievalQA with MCP retriever",
+            "GET /health": "Health check and system status",
+            "POST /memory/clear": "Clear agent conversation memory",
+            "GET /memory/status": "Get current memory status"
         },
         "features": [
             "Physiotherapy-focused medical database search via MCP server",
@@ -892,4 +924,4 @@ if __name__ == '__main__':
     logger.info("🏃 Physiotherapy Focus: Musculoskeletal conditions, rehabilitation, therapeutic exercise")
     logger.info("=" * 60)
     
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+    app.run(host='0.0.0.0', port=5050, debug=False, threaded=True)
