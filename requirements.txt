@@ -3,6 +3,7 @@
 
 # Core Flask
 flask>=3.0.0
+flask-cors>=4.0.0
 python-dotenv>=1.0.0
 
 # OpenAI
@@ -15,6 +16,9 @@ requests>=2.31.0
 langchain-classic>=0.3.0
 langchain-openai>=0.1.25
 langchain-core>=0.2.38
+
+# LangGraph - State-based workflow
+langgraph>=0.2.0
 
 # Token counting
 tiktoken>=0.5.0

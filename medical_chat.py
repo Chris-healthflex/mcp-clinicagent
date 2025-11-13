@@ -7,6 +7,8 @@ Chat interface to interact with the LangChain Medical API Server with MCP Tools
 import requests
 import json
 import sys
+import os
+import asyncio
 from datetime import datetime
 import time
 from pathlib import Path
@@ -17,6 +19,10 @@ except ImportError:
     import subprocess
     subprocess.check_call([sys.executable, "-m", "pip", "install", "simple-term-menu"])
     from simple_term_menu import TerminalMenu
+
+# Provisional diagnosis server configuration
+PROVISIONAL_SERVER_URL = os.getenv("PROVISIONAL_SERVER_URL", "http://localhost:5051")
+PROVISIONAL_DIAGNOSIS_AVAILABLE = True  # Always available via HTTP
 
 class MedicalChatInterface:
     """Interactive chat interface for the medical API."""
@@ -45,6 +51,16 @@ class MedicalChatInterface:
                 "endpoint": "/fast_ask",
                 "description": " Ultra-Fast Direct Search",
                 "color": "\033[93m"  # Yellow
+            },
+            "langgraph": {
+                "endpoint": "/langgraph_diagnose",
+                "description": "🧠 LangGraph + LangChain Reasoning Agent (Multi-Query, 5 Diagnoses)",
+                "color": "\033[95m"  # Purple
+            },
+            "provisional": {
+                "endpoint": None,  # Direct execution, no API endpoint
+                "description": "🔬 Provisional Diagnosis System (o1-mini, 5 Diagnoses, MCP Validation)",
+                "color": "\033[96m"  # Cyan
             }
         }
         
@@ -92,6 +108,7 @@ class MedicalChatInterface:
         print(f"\n{self.colors['yellow']}Commands:{self.colors['reset']}")
         print("  /mode <mode_name>  - Switch between modes")
         print("  /file             - Analyze a patient assessment file")
+        print("  /provisional      - Run provisional diagnosis system (o1-mini + MCP)")
         print("  /batch            - Batch process all assessment files")
         print("  /history          - View conversation history") 
         print("  /clear            - Clear conversation history")
@@ -100,27 +117,39 @@ class MedicalChatInterface:
         print("  /quit or /exit    - Exit the chat")
         print("=" * 80)
     
-    def check_server_health(self):
+    def check_server_health(self, silent=False):
         """Check if the API server is running."""
         try:
-            response = requests.get(f"{self.base_url}/health", timeout=30)
+            response = requests.get(f"{self.base_url}/health", timeout=5)
             if response.status_code == 200:
-                health_data = response.json()
-                print(f"{self.colors['green']} Server Status: {health_data.get('status', 'unknown')}{self.colors['reset']}")
-                print(f"   MCP Status: {health_data.get('mcp_status', 'unknown')}")
-                print(f"   Database: {health_data.get('database_path', 'unknown')}")
+                if not silent:
+                    health_data = response.json()
+                    print(f"{self.colors['green']}✓ Medical API Server (port 5050): {health_data.get('status', 'unknown')}{self.colors['reset']}")
+                    print(f"   MCP Status: {health_data.get('mcp_status', 'unknown')}")
+                    print(f"   Database: {health_data.get('database_path', 'unknown')}")
                 return True
             else:
-                print(f"{self.colors['red']} Server returned status: {response.status_code}{self.colors['reset']}")
                 return False
-        except requests.exceptions.RequestException as e:
-            print(f"{self.colors['red']} Cannot connect to server: {e}{self.colors['reset']}")
-            print(f"   Make sure the server is running at {self.base_url}")
+        except requests.exceptions.RequestException:
             return False
     
     def send_question(self, question):
         """Send question to the appropriate API endpoint."""
         mode_info = self.modes[self.current_mode]
+        
+        # Handle provisional diagnosis mode (direct execution)
+        if self.current_mode == "provisional" or mode_info.get("endpoint") is None:
+            print(f"{self.colors['red']} Provisional diagnosis mode requires a JSON file.{self.colors['reset']}")
+            print(f"{self.colors['yellow']} Use /provisional or /file to select a patient assessment file.{self.colors['reset']}")
+            return
+        
+        # Check if server is available for non-provisional modes
+        if not self.check_server_health():
+            print(f"{self.colors['red']} Medical API server (port 5050) is not running.{self.colors['reset']}")
+            print(f"{self.colors['yellow']} Please start it with: python Langapproach.py{self.colors['reset']}")
+            print(f"{self.colors['yellow']} Or use /provisional mode which uses a different server.{self.colors['reset']}")
+            return
+        
         endpoint = self.base_url + mode_info["endpoint"]
         
         try:
@@ -133,9 +162,10 @@ class MedicalChatInterface:
             else:
                 payload = {"question": question}
             
-            # Send request
+            # Send request (longer timeout for langgraph mode)
             start_time = time.time()
-            response = requests.post(endpoint, json=payload, timeout=120)
+            timeout = 600 if self.current_mode == "langgraph" else 120
+            response = requests.post(endpoint, json=payload, timeout=timeout)
             response_time = time.time() - start_time
             
             if response.status_code == 200:
@@ -167,9 +197,23 @@ class MedicalChatInterface:
         print(f"\n{self.colors['green']}{self.colors['bold']}🤖 MEDICAL ASSISTANT RESPONSE:{self.colors['reset']}")
         print("=" * 60)
         
-        # Main answer
-        answer = result.get("answer", result.get("mcp_result", "No answer provided"))
-        print(f"{answer}\n")
+        # Handle langgraph format (diagnoses list)
+        if "diagnoses" in result:
+            print(f"{self.colors['cyan']}Generated {len(result['diagnoses'])} diagnoses:{self.colors['reset']}\n")
+            for i, diag in enumerate(result["diagnoses"], 1):
+                print(f"{self.colors['bold']}{i}. {diag.get('diagnosis', 'N/A')}{self.colors['reset']}")
+                print(f"   Probability: {diag.get('probability', 0)}%")
+                if diag.get('grounding'):
+                    print(f"   Grounding:")
+                    for j, evidence in enumerate(diag['grounding'][:2], 1):  # Show first 2
+                        print(f"     - {evidence[:150]}...")
+                if diag.get('required_fields'):
+                    print(f"   Fields used: {', '.join(diag['required_fields'][:3])}")
+                print()
+        else:
+            # Main answer (for other modes)
+            answer = result.get("answer", result.get("mcp_result", "No answer provided"))
+            print(f"{answer}\n")
         
         # Additional information
         if "sources" in result and result["sources"]:
@@ -226,13 +270,67 @@ class MedicalChatInterface:
             print(f"{self.colors['green']} Conversation history cleared.{self.colors['reset']}")
         
         elif cmd == "/health":
-            self.check_server_health()
+            # Check both servers
+            print(f"{self.colors['cyan']}Checking server status...{self.colors['reset']}")
+            print()
+            
+            # Check old medical API server
+            old_server = self.check_server_health()
+            if not old_server:
+                print(f"{self.colors['yellow']}✗ Medical API Server (port 5050): Not running{self.colors['reset']}")
+                print(f"   Start with: python Langapproach.py")
+            print()
+            
+            # Check provisional diagnosis server
+            provisional_server = self.check_provisional_server()
+            if provisional_server:
+                try:
+                    response = requests.get(f"{PROVISIONAL_SERVER_URL}/health", timeout=5)
+                    if response.status_code == 200:
+                        health_data = response.json()
+                        print(f"{self.colors['green']}✓ Provisional Diagnosis Server (port 5051): Running{self.colors['reset']}")
+                        print(f"   Model: {health_data.get('model', 'N/A')}")
+                        print(f"   Max iterations: {health_data.get('max_iterations', 'N/A')}")
+                        print(f"   Num diagnoses: {health_data.get('num_diagnoses', 'N/A')}")
+                    else:
+                        print(f"{self.colors['yellow']}✗ Provisional Diagnosis Server (port 5051): Not responding{self.colors['reset']}")
+                except:
+                    print(f"{self.colors['yellow']}✗ Provisional Diagnosis Server (port 5051): Not running{self.colors['reset']}")
+            else:
+                print(f"{self.colors['yellow']}✗ Provisional Diagnosis Server (port 5051): Not running{self.colors['reset']}")
+                print(f"   Start with: python provisional_diagnosis_system.py --server")
+            print()
         
         elif cmd == "/file":
             self.selected_file = self.select_assessment_file()
             if self.selected_file:
                 print(f"{self.colors['green']} Selected: {self.selected_file.name}{self.colors['reset']}")
-                self.process_single_assessment(self.selected_file)
+                if self.current_mode == "provisional":
+                    self.run_provisional_diagnosis(self.selected_file)
+                else:
+                    self.process_single_assessment(self.selected_file)
+        
+        elif cmd == "/provisional":
+            # Check if server is running
+            if not self.check_provisional_server():
+                print(f"{self.colors['red']} Provisional diagnosis server is not running.{self.colors['reset']}")
+                print(f"{self.colors['yellow']} Please start it first:{self.colors['reset']}")
+                print(f"{self.colors['cyan']}   python provisional_diagnosis_system.py --server{self.colors['reset']}")
+                print(f"{self.colors['yellow']} Server URL: {PROVISIONAL_SERVER_URL}{self.colors['reset']}")
+                return True
+            
+            # Switch to provisional mode
+            self.current_mode = "provisional"
+            print(f"{self.colors['green']} Switched to: {self.modes['provisional']['description']}{self.colors['reset']}")
+            print(f"{self.colors['green']} Server connected: {PROVISIONAL_SERVER_URL}{self.colors['reset']}")
+            
+            # Select and process file
+            self.selected_file = self.select_assessment_file()
+            if self.selected_file:
+                print(f"{self.colors['green']} Selected: {self.selected_file.name}{self.colors['reset']}")
+                self.run_provisional_diagnosis(self.selected_file)
+            else:
+                print(f"{self.colors['yellow']} No file selected.{self.colors['reset']}")
         
         elif cmd == "/batch":
             self.batch_process_assessments()
@@ -267,11 +365,42 @@ class MedicalChatInterface:
     
     def process_single_assessment(self, file_path: Path):
         """Process a single assessment file with structured endpoint and save output."""
+        # Handle provisional mode separately
+        if self.current_mode == "provisional":
+            self.run_provisional_diagnosis(file_path)
+            return
+        
+        # Check if old server is available (silent check)
+        old_server_available = self.check_server_health(silent=True)
+        
+        # If old server not available, check if provisional server is available
+        if not old_server_available:
+            provisional_available = self.check_provisional_server()
+            if provisional_available:
+                print(f"{self.colors['yellow']} Medical API server (port 5050) is not running.{self.colors['reset']}")
+                print(f"{self.colors['cyan']} Switching to provisional diagnosis mode...{self.colors['reset']}")
+                self.current_mode = "provisional"
+                self.run_provisional_diagnosis(file_path)
+                return
+            else:
+                print(f"{self.colors['red']} No servers are running.{self.colors['reset']}")
+                print(f"{self.colors['yellow']} Options:{self.colors['reset']}")
+                print(f"   1. Start medical API server: python Langapproach.py")
+                print(f"   2. Start provisional server: python provisional_diagnosis_system.py --server")
+                return
+        
+        # Old server is available, proceed with normal processing
         try:
             with open(file_path) as f:
                 data = json.load(f)
             user_id = file_path.stem
-            endpoint = self.base_url + "/diagnose_assessment"
+            
+            # Use langgraph endpoint if langgraph mode is selected, otherwise use diagnose_assessment
+            if self.current_mode == "langgraph":
+                endpoint = self.base_url + "/langgraph_diagnose"
+            else:
+                endpoint = self.base_url + "/diagnose_assessment"
+            
             payload = {"assessment_json": data, "user_id": user_id}
             print(f"{self.colors['yellow']} Processing {file_path.name}...{self.colors['reset']}")
             # Robust retry loop to tolerate slow LLM/backoffs on the server side
@@ -284,7 +413,12 @@ class MedicalChatInterface:
                         out = resp.json()
                         self.write_output_file(user_id, out)
                         print(f"{self.colors['green']} Top diagnoses:{self.colors['reset']}")
-                        print(out.get("llm_diagnosis", "")[:500])
+                        # Handle both old format (llm_diagnosis) and new format (diagnoses)
+                        if "diagnoses" in out:
+                            for i, diag in enumerate(out["diagnoses"][:3], 1):
+                                print(f"  {i}. {diag.get('diagnosis', 'N/A')} ({diag.get('probability', 0)}%)")
+                        else:
+                            print(out.get("llm_diagnosis", out.get("answer", ""))[:500])
                         break
                     else:
                         print(f"{self.colors['red']} Error {resp.status_code}: {resp.text}{self.colors['reset']}")
@@ -413,15 +547,137 @@ class MedicalChatInterface:
             print(f"{self.colors['red']}Error loading file: {e}{self.colors['reset']}")
             return None
     
+    def check_provisional_server(self):
+        """Check if provisional diagnosis server is running."""
+        try:
+            response = requests.get(f"{PROVISIONAL_SERVER_URL}/health", timeout=5)
+            if response.status_code == 200:
+                return True
+            return False
+        except requests.exceptions.RequestException:
+            return False
+    
+    def run_provisional_diagnosis(self, file_path: Path):
+        """Run the provisional diagnosis system via HTTP server."""
+        try:
+            # Check if server is running
+            if not self.check_provisional_server():
+                print(f"{self.colors['red']} Provisional diagnosis server is not running.{self.colors['reset']}")
+                print(f"{self.colors['yellow']} Please start it with: python provisional_diagnosis_system.py --server{self.colors['reset']}")
+                print(f"{self.colors['yellow']} Server URL: {PROVISIONAL_SERVER_URL}{self.colors['reset']}")
+                return
+            
+            print(f"\n{self.colors['cyan']}{self.colors['bold']}🔬 PROVISIONAL DIAGNOSIS SYSTEM{self.colors['reset']}")
+            print("=" * 80)
+            print(f"{self.colors['yellow']} Processing: {file_path.name}{self.colors['reset']}")
+            print(f"{self.colors['yellow']} Using o1-mini reasoning model with MCP validation{self.colors['reset']}")
+            print(f"{self.colors['yellow']} Connecting to server: {PROVISIONAL_SERVER_URL}{self.colors['reset']}")
+            print(f"{self.colors['yellow']} This may take several minutes...{self.colors['reset']}")
+            print("=" * 80)
+            
+            # Prepare request
+            # Use absolute path for file
+            abs_path = str(file_path.resolve())
+            payload = {
+                "json_path": abs_path
+            }
+            
+            # Send request to server
+            start_time = time.time()
+            response = requests.post(
+                f"{PROVISIONAL_SERVER_URL}/diagnose",
+                json=payload,
+                timeout=1800  # 30 minutes timeout
+            )
+            response_time = time.time() - start_time
+            
+            if response.status_code == 200:
+                result = response.json()
+                
+                if result.get("status") == "success":
+                    report_data = result.get("report", {})
+                    diagnoses = report_data.get("diagnoses", [])
+                    
+                    # Display results
+                    print(f"\n{self.colors['green']}{self.colors['bold']}✓ DIAGNOSIS COMPLETE{self.colors['reset']}")
+                    print("=" * 80)
+                    print(f"{self.colors['cyan']}Patient ID: {report_data.get('patient_id', 'N/A')}{self.colors['reset']}")
+                    print(f"{self.colors['cyan']}Generated {len(diagnoses)} provisional diagnoses:{self.colors['reset']}\n")
+                    
+                    for i, diag in enumerate(diagnoses, 1):
+                        diag_name = diag.get("diagnosis_name", "Unknown")
+                        confidence = diag.get("confidence_score", 0.0)
+                        iterations = diag.get("iteration_count", 0)
+                        reasoning = diag.get("reasoning", "")[:200]
+                        fields = diag.get("json_fields_used", [])
+                        
+                        print(f"{self.colors['bold']}{i}. {diag_name}{self.colors['reset']}")
+                        print(f"   {self.colors['yellow']}Confidence: {confidence:.2%}{self.colors['reset']}")
+                        print(f"   {self.colors['cyan']}Iterations: {iterations}{self.colors['reset']}")
+                        print(f"   {self.colors['purple']}Reasoning: {reasoning}...{self.colors['reset']}")
+                        if fields:
+                            print(f"   {self.colors['green']}Fields used: {', '.join(fields[:3])}{self.colors['reset']}")
+                        print()
+                    
+                    print(f"{self.colors['yellow']}Processing time: {response_time:.2f}s{self.colors['reset']}")
+                    print("=" * 80)
+                    
+                    # Save to history
+                    self.session_history.append({
+                        "timestamp": datetime.now().strftime("%H:%M:%S"),
+                        "question": f"Provisional diagnosis for {file_path.name}",
+                        "mode": "provisional",
+                        "response": f"Generated {len(diagnoses)} diagnoses",
+                        "response_time": response_time
+                    })
+                    
+                    # Output file is already saved by the server
+                    user_id = file_path.stem
+                    output_dir = self.outputs_dir / user_id
+                    print(f"{self.colors['green']}✓ Report saved to: {output_dir}/{self.colors['reset']}")
+                else:
+                    error_msg = result.get("error", "Unknown error")
+                    print(f"{self.colors['red']} Server returned error: {error_msg}{self.colors['reset']}")
+            else:
+                error_data = response.json() if response.headers.get('content-type') == 'application/json' else {}
+                error_msg = error_data.get("error", f"HTTP {response.status_code}")
+                print(f"{self.colors['red']} Error from server: {error_msg}{self.colors['reset']}")
+                
+        except requests.exceptions.Timeout:
+            print(f"{self.colors['red']} Request timed out. The diagnosis may take longer than expected.{self.colors['reset']}")
+        except requests.exceptions.RequestException as e:
+            print(f"{self.colors['red']} Error connecting to server: {e}{self.colors['reset']}")
+            print(f"{self.colors['yellow']} Make sure the server is running: python provisional_diagnosis_system.py --server{self.colors['reset']}")
+        except Exception as e:
+            print(f"{self.colors['red']} Error running provisional diagnosis: {e}{self.colors['reset']}")
+            import traceback
+            traceback.print_exc()
+    
     def run(self):
         """Run the interactive chat interface."""
         self.print_header()
         
-        # Check server health at startup
-        if not self.check_server_health():
-            print(f"{self.colors['red']}Please start the medical API server first:{self.colors['reset']}")
-            print("python Langapproach.py")
-            return
+        # Check server health at startup (optional - only warn, don't block)
+        old_server_available = self.check_server_health(silent=True)
+        provisional_server_available = self.check_provisional_server()
+        
+        if not old_server_available and not provisional_server_available:
+            print(f"{self.colors['yellow']}Note: No servers are currently running.{self.colors['reset']}")
+            print(f"{self.colors['yellow']}  - Medical API server (port 5050): Start with 'python Langapproach.py'{self.colors['reset']}")
+            print(f"{self.colors['yellow']}  - Provisional server (port 5051): Start with 'python provisional_diagnosis_system.py --server'{self.colors['reset']}")
+            print()
+        elif not old_server_available:
+            print(f"{self.colors['yellow']}Note: Medical API server (port 5050) is not running.{self.colors['reset']}")
+            print(f"{self.colors['green']}✓ Provisional diagnosis server (port 5051) is available.{self.colors['reset']}")
+            print(f"{self.colors['cyan']}You can use /provisional mode or it will auto-switch when processing files.{self.colors['reset']}")
+            print()
+        elif not provisional_server_available:
+            print(f"{self.colors['green']}✓ Medical API server (port 5050) is running.{self.colors['reset']}")
+            print(f"{self.colors['yellow']}Note: Provisional diagnosis server (port 5051) is not running.{self.colors['reset']}")
+            print()
+        else:
+            print(f"{self.colors['green']}✓ Both servers are running and available.{self.colors['reset']}")
+            print()
         
         # Select initial mode
         mode_choice = self.select_initial_mode()
